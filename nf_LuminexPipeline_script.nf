@@ -1,9 +1,11 @@
 nextflow.enable.dsl=2
 
-params.aref = "/home/jesse-build/nf/aref/lum_analyte_ref.RData"
-params.data_dir = '~/Documents/datasets'
+params.aref = "/home/jesse/lum_analyte_ref.RData"
+params.data_dir = '/home/jesse/dataset01'
 params.tech_reps = 1
 params.instrument_names = 'bp, mp'
+params.facet = 5
+params.cor_type = "spearman"
 //params.instrument_name2 = "mp"
 
 process CONFIG{
@@ -31,7 +33,7 @@ process CONFIG{
   val data_dir
   
   output:
-  val "${projectDir}/rds/dta_import.rds"
+  val "${projectDir}/rds/1_dta_import.rds"
   
   script:
   """
@@ -50,7 +52,7 @@ process CONFIG{
     //val instrument_name2
 
     output:
-    val "${projectDir}/rds/dta_separate.rds"
+    val "${projectDir}/rds/2_dta_separate.rds"
 
     script:
     """
@@ -72,7 +74,7 @@ process CONFIG{
   val "data_out"
 
   output:
-  val "${projectDir}/rds/dta_colnames_clean.rds"
+  val "${projectDir}/rds/3_dta_colnames_clean.rds"
 
   script:
   """
@@ -95,7 +97,7 @@ process ANALYTE_FIX{
   val aref
 
   output:
-  val "${projectDir}/rds/dta_analyte_ref.rds"
+  val "${projectDir}/rds/4_dta_analyte_ref.rds"
   
   script:
   """
@@ -119,8 +121,8 @@ process DATA_SAVE {
   val "data_out"
 
   output:
-  val "${projectDir}/rds/dta_raw.rds"
-  val "${projectDir}/rds/dta_symbol_remove.rds"
+  val "${projectDir}/rds/5_dta_raw.rds"
+  val "${projectDir}/rds/6_dta_symbol_remove.rds"
 
   script:
   """
@@ -141,7 +143,7 @@ process DATA_SPLIT {
   val "data_out"
 
   output:
-  val "${projectDir}/rds/dta_list.rds"
+  val "${projectDir}/rds/7_dta_list.rds"
 
   script:
   """
@@ -156,6 +158,37 @@ process DATA_SPLIT {
 
 }
 
+process REPORTS {
+  input:
+  val facet
+  val cor_type
+  val "input_data"
+
+  output:
+  val "${projectDir}/rds/statistical_report.html"
+
+  script:
+  """
+  #!/usr/bin/env Rscript
+
+  setwd("${projectDir}")  
+
+  dat <- readRDS("${input_data}")
+
+  library(knitr)
+
+  Sys.setenv(RSTUDIO_PANDOC="/usr/lib/rstudio/bin/quarto/bin/tools")
+
+  rmarkdown::render(
+  input = paste0(system.file(package = "LuminexPipeline"), "/extdata/rmd/reports.Rmd"),
+  output_file = "${projectDir}/rds/statistical_report.html",
+  params = list(cor_type = "${cor_type}", facet = ${facet}, data = dat),
+  encoding     = 'UTF-8'
+)
+
+  """
+}
+
 //data_dir = Channel.value('~/Documents/datasets')
 
 
@@ -167,7 +200,11 @@ workflow{
   def tech_rep_ch = Channel.value(params.tech_reps)
   def ins_names = Channel.value(params.instrument_names)
   //def ins_name2 = Channel.value(params.instrument_name2)
-
+  def facet = Channel.value(params.facet)
+  def cor_type = Channel.value(params.cor_type)
+  
+  
+  
   CONFIG(data_dir_ch, analyte_ref_ch, tech_rep_ch)
   DATA_IMPORT(data_dir_ch)
   FILENAME_SEPARATE(DATA_IMPORT.out, ins_names)
@@ -175,4 +212,5 @@ workflow{
   ANALYTE_FIX(DATA_CLEAN.out, analyte_ref_ch)
   DATA_SAVE(ANALYTE_FIX.out)
   DATA_SPLIT(DATA_SAVE.out[1])
+  REPORTS(facet, cor_type, DATA_SAVE.out[1])
 }
